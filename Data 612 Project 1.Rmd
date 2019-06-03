@@ -1,0 +1,153 @@
+---
+title: "Data 612 Project 1"
+author: "Sergio Ortega Cruz"
+date: "May 31, 2019"
+output: html_document
+---
+
+
+Introduction
+
+The recommender system I would like to implement would recommend Movies. This is an area were a lot have been done so it's a nice area to gather data and benchmark results and models.
+In this case grab data from metacritic.com since is one of the few delivering numeric ratings in a 0-100 scale among multiple reviewers.
+
+
+```{r sect1}
+# Required libraries
+library(caTools)  # Train/test Split
+library(dplyr)
+library(tidyr)
+```
+
+Data Set
+
+For this project, I wanted to create a small data set based on real reviews. Using reviews from metacritic.com, which assigns numeric values to their reviews (on a 0 to 100 scale), I recorded some ratings for recent movies. I quickly realized that not allthe selected reviewers review all the selected movies. So for this project will have a lot of NA values that I'll handle
+
+We start importing a preloade CSV file available in my github and showing the resulting dataframe.
+
+```{r sect 2}
+# Data import
+data <- read.csv("https://raw.githubusercontent.com/sortega7878/DATA612/master/movies.csv")  
+colnames(data) <- gsub("ï..Reviewers", "Reviewers", colnames(data))
+data
+```
+Next step is dividing the dataframe in training test datasets to keep randomness I'll use routines pre made for this purpose
+
+###Trainig/Testing Split
+
+Most manipulations and calculations were done using tidyverse. Data frame was converted to long form and split into training and testing sets based on 0.75 split ratio.
+
+```{r sect3}
+# Convert to long form
+split_data <- data %>% gather(key = Movie, value = Rating, -Reviewers)
+
+# Randomly split all ratings for training and testing sets
+set.seed(50)
+split <- sample.split(split_data$Rating, SplitRatio = 0.75)
+
+# Prepare training set
+train_data <- split_data
+train_data$Rating[!split] <- NA
+print("Training Dataset")
+head(train_data)
+
+# Prepare testing set
+test_data <- split_data
+test_data$Rating[split] <- NA
+print("Test Dataset")
+head(test_data)
+```
+
+Now that we have two different dataset ramndomly chosen we can move to RMSE calculations
+
+
+```{r sect4}
+# Get raw average
+raw_avg <- sum(train_data$Rating, na.rm = TRUE) / length(which(!is.na(train_data$Rating)))
+
+# Calculate RMSE for raw average
+rmse_raw_train <- sqrt(sum((train_data$Rating[!is.na(train_data$Rating)] - raw_avg)^2) /
+                         length(which(!is.na(train_data$Rating))))
+rmse_raw_train
+rmse_raw_test <- sqrt(sum((test_data$Rating[!is.na(test_data$Rating)] - raw_avg)^2) /
+                        length(which(!is.na(test_data$Rating))))
+rmse_raw_test
+```
+
+We can see RMSE values are quite large expected in such a small sample with so many empty values
+
+###Baseline Predictors
+
+```{r sect7}
+
+# Get Reviewers and Movie biases
+Reviewers_bias <- train_data %>% filter(!is.na(Rating)) %>% 
+  group_by(Reviewers) %>%
+  summarise(sum = sum(Rating), count = n()) %>% 
+  mutate(bias = sum/count-raw_avg) %>%
+  select(Reviewers, ReviewersBias = bias)
+ReviewersBias<-Reviewers_bias$ReviewersBias
+
+Movie_bias <- train_data %>% filter(!is.na(Rating)) %>% 
+  group_by(Movie) %>%
+  summarise(sum = sum(Rating), count = n()) %>% 
+  mutate(bias = sum/count-raw_avg) %>%
+  select(Movie, MovieBias = bias)
+MovieBias<-Movie_bias$MovieBias
+
+
+
+train_data <- train_data %>% left_join(Reviewers_bias, by = "Reviewers") %>%
+  left_join(Movie_bias, by = "Movie") %>%
+  mutate(RawAvg = raw_avg) %>%
+  mutate(Baseline = RawAvg + ReviewersBias + MovieBias)
+train_data
+
+test_data <- test_data %>% left_join(Reviewers_bias, by = "Reviewers") %>%
+  left_join(Movie_bias, by = "Movie") %>%
+  mutate(RawAvg = raw_avg) %>%
+  mutate(Baseline = RawAvg + ReviewersBias + MovieBias)
+test_data
+
+# Calculate RMSE for baseline predictors
+
+rmse_base_train <- sqrt(sum((train_data$Rating[!is.na(train_data$Rating)] - 
+                               train_data$Baseline[!is.na(train_data$Rating)])^2) /
+                          length(which(!is.na(train_data$Rating))))
+
+rmse_base_test <- sqrt(sum((test_data$Rating[!is.na(test_data$Rating)] - 
+                              test_data$Baseline[!is.na(test_data$Rating)])^2) /
+                         length(which(!is.na(test_data$Rating))))
+```
+
+###RMSE and Summary
+
+You can tell the largest Bias are determined by the NA reviews or reviewers didn't review the movie.Continuing the RMSE calculation with the Bias Information for the baseline Ratings you'll see the RMSE for the new baseline ratings.
+
+```{r sect10}
+rmse_base_train
+rmse_base_test
+
+
+```
+
+
+This table shows RMSE values for training and testing sets and for raw average and baseline predictors.
+
+
+```{r echo = FALSE}
+rmse <- as.data.frame(c(rmse_raw_train, rmse_base_train, rmse_raw_test, rmse_base_test))
+colnames(rmse) <- "RMSE"
+rownames(rmse) <- c("Training: Raw Average",
+                    "Training: Baseline Predictor",
+                    "Testing: Raw Average",
+                    "Testing: Baseline Predictor")
+knitr::kable(rmse, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), 
+                            full_width = FALSE)
+```
+
+
+
+We can see that RMSE improved baseline predictors in both training and test datasets. Eventhough a small dataset and you could say incompete gave us enough information to visualize and apply the movie and reviewer bias into the model.Since the test and training datasets are randomly generated with every execution I'm reporting over a Snapshot.
+
