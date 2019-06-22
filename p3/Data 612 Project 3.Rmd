@@ -1,0 +1,154 @@
+---
+title: "DATA612 Project 3: Singular Value Decomposition"
+author: "Sergio Ortega Cruz"
+date: "June 13, 2016"
+output: 
+  html_document: 
+    highlight: tango
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE, comment=NA, fig.align='center')
+library(recommenderlab)
+library(ggplot2)
+library(reshape2)
+library(tm)
+library(irlba)
+```
+
+##Objective
+
+Your task is implement a matrix factorization method-such as singular value decomposition (SVD) or Alternating Least Squares (ALS)-in the context of a recommender system.
+You may approach this assignment in a number of ways. You are welcome to start with an existing recommender system written by yourself or someone else. Remember as always to cite your sources, so that you can be graded on what you added, not what you found.
+SVD can be thought of as a pre-processing step for feature engineering. You might easily start with thousands or millions of items, and use SVD to create a much smaller set of "k" items (e.g. 20 or 70).
+
+##Process
+
+I'll be implementing SVD as factorization method to estimate similarity on the dataset and create a content based recommender system to see the practicality.
+
+I'll be using a dataset included in recommenderlab named "Jester5k" data that comprises 5000 users rating Jokes in a scale of -10 to 10
+
+```{r sect1, echo=FALSE}
+data(Jester5k, package = "recommenderlab")
+```
+
+
+## SVD Concepts
+Singular Value Decomposition begins by breaking an $M$ by $N$ matrix $A$ (in this case $M$ users and $N$ jokes) into the product of three matrices: $U$, which is $M$ by $M$, $\Sigma$, which is $M$ by $N$, and $V^T$, which is $N$ by $N$:
+
+$$A = U \ \Sigma \ V^T$$
+
+
+
+The matrix $\Sigma$ is a diagonal matrix, with values representing the singular values by which $A$ can be decomposed.  As these values decrease, continued calculation of $A$ using these values does not provide a useful return on computing power.  By determining the number of singular values $k$ at which this point of diminishing returns occurs, the matrices can be reduced in size; their product can be used to closely approximate $A$ with less computational expense.
+
+$$A \approx U_k \ \Sigma_k \ V^T_k$$
+
+
+
+The image above represents the dimensionality reduction in the matrices $U$, $\Sigma$, and $V^T$ used to represent $A$.  In cases where $k$ is much less than $N$, this can result in signifcant computational savings.
+
+
+### Executing the SVD
+
+The data in the `Jester5k` dataset are normalized and fed to the `svd` function of base R, which returns a list of three items: `u`, the matrix $U$; `v`, the matrix $V^T$; and `d`, the singular values that make up the diagonal of $\Sigma$.
+```{r sect2}
+J5k_norm <- normalize(Jester5k)
+jester_svd <- svd(J5k_norm@data)
+Sk <- jester_svd$d; Uk <- jester_svd$u; Vk <- t(as.matrix(jester_svd$v))
+```
+
+To estimate the value of $k$, the cumulative proportion of the length of the vector `d` represented by the set of items running through an index `n` is calculated and plotted.  The values of `n` at which 80% and 90% of the vector's length is included are found and plotted:
+
+```{r sect3, fig.width=8}
+norm_Sigma <- sqrt(sum(Sk^2, na.rm = TRUE))
+frac_norm <- NULL
+
+for (i in 1:length(Sk)) {
+  frac_norm[i] <- sqrt(sum(Sk[1:i]^2, na.rm = TRUE)) / norm_Sigma
+}
+
+
+qplot(x = 1:100, y = frac_norm, geom = "line") + 
+  geom_hline(yintercept = 0.8, lty = 2, col = 'green4') + 
+  geom_vline(xintercept = min(which(x = frac_norm > 0.8)), lty = 3, col = "green4") + 
+  geom_hline(yintercept = 0.9, lty = 2, col = 'red4') + 
+  geom_vline(xintercept = min(which(x = frac_norm > 0.9)), lty = 3, col = "red4") + 
+  scale_x_continuous('') + scale_y_continuous('') + theme_bw()
+
+k <- min(which(x = frac_norm > 0.8))
+```
+
+80% of the length of $\Sigma$ is captured in the first 35 singular values; 90% is captured in the first 57 singular values.  The over 60% increase in computation required is not likely worth the 12.5% increase in accuracy in most cases.  For this reason, the value $k = 35$ is used.
+```{r sect4}
+Sk <- Diagonal(x = Sk[1:k])
+Uk <- Uk[, 1:k]
+Vk <- Vk[, 1:k]
+```
+
+### Applying the SVD
+The ratings matrix $R$ can now be approximated using the reduced matrices:
+
+$$R \approx (U_k \ \sqrt{\Sigma_k}^T) (\sqrt{\Sigma_k} \ V^T_k)$$
+
+This calculation is executed, and the resulting `dgeMatrix` is converted to a standard matrix.  Bounds are added to enforce the range of the original scores -- the rating scale is between -10 and 10, but actual ratings range between -9.95 and 9.9.
+```{r sect5}
+R <- Uk %*% t(sqrt(Sk)) %*% sqrt(Sk) %*% t(Vk)
+R@Dimnames <- Jester5k@data@Dimnames
+R <- as(R, "matrix")
+
+for (i in 1:nrow(R)) {
+  for (j in 1:ncol(R)) {
+    R[i, j] <- ifelse(R[i, j] < -9.95, -9.95,
+                      ifelse(R[i, j] > 9.9, 9.9,
+                             R[i, j]))
+  }
+}
+```
+
+
+
+### Evaluating the Ratings
+The predicted and actual ratings are vizualized to allow for quick comparison:
+```{r sect6}
+
+ggplot(melt(R), aes(Var1, Var2, fill = value)) + geom_raster() + scale_fill_gradientn(colours=c("#0000FFFF","#FFFFFFFF","#FF0000FF"), name = 'Rating') + scale_x_discrete("Users", breaks = NULL, labels = NULL) + scale_y_discrete("Items", breaks = NULL, labels = NULL) + theme(legend.position = 'bottom') + ggtitle('Approximated Ratings')
+
+jmatrix <- matrix(as.vector(Jester5k@data), nrow = Jester5k@data@Dim[1], ncol = Jester5k@data@Dim[2])
+
+ggplot(melt(jmatrix), aes(Var1, Var2, fill = value)) + geom_raster() + scale_fill_gradientn(colours=c("#0000FFFF","#FFFFFFFF","#FF0000FF"), name = 'Rating') + scale_x_discrete("Users", breaks = NULL, labels = NULL) + scale_y_discrete("Items", breaks = NULL, labels = NULL) + theme(legend.position = 'bottom') + ggtitle('Actual Ratings')
+```
+
+You can see from the results in the graphic  that is not showing accurately the user sentiment (the darker the color tone the closer is to the grade boundaries -10,10). Results are in the dataset have sparsity and the instances with no answer were transformed to 0 meaning that results bias towards that 0 in the graphic.Then I normalized the dataset not improving results
+
+In order to allow for direct comparison with the actual ratings, the sparsity in the original dataset is reintroduced by converting missing values in the original dataset to `NA` in the estimated ratings.  Additionally, the approximated ratings are converted to the `realRatingMatrix` class to match the original data class.  The accuracy of the predicted ratings is then calculated.
+
+```{r sect7}
+for (i in 1:nrow(R)) {
+  for (j in 1:ncol(R)) {
+    R[i, j] <- ifelse(jmatrix[i, j] == 0, NA, R[i, j])
+  }
+}
+
+R <- as(R, "realRatingMatrix")
+calcPredictionAccuracy(x = R, data = normalize(Jester5k), byUser = FALSE)
+```
+
+The RMSE returned by this fit is then compared to a user-based collaborative filtering system with the default cosine similarity using k-fold cross-validation.
+```{r sect8}
+eval_sets <- evaluationScheme(data = Jester5k, method = "cross-validation",
+                              k = 4, given = 15, goodRating = 1)
+
+eval_recommender <- Recommender(data = getData(eval_sets, "train"),
+                                method = "UBCF", parameter = NULL)
+
+eval_prediction <- predict(object = eval_recommender,
+                           newdata = getData(eval_sets, "known"),
+                           n = 10, type = "ratings")
+
+calcPredictionAccuracy(x = eval_prediction, data = getData(eval_sets, "unknown"), byUser = FALSE)
+```
+
+The lower RMSE shows that a collaborative filtering model is more effective at predicting ratings than using SVD to predict the same ratings, even with SVD having the advantage of not withholding data for a testing set.  While this may be improved with a larger value of $k$, it is more interesting to investigate other applications of SVD for recommender systems.
