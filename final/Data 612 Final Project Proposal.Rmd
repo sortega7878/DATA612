@@ -1,0 +1,42 @@
+---
+title: "DATA612 Final Project Proposal"
+author: "Sergio Ortega Cruz"
+date: "July 6, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Movie Recommender with Extended Data Set
+
+
+
+I will be constructing in a ver `thorough` step by step methodology a movie recommender system. In this project, I will develop a collaborative filtering recommender (CFR) system for recommending movies. 
+
+The basic idea of CFR systems is that, if two users share the same interests in the past, e.g. they liked the same book or the same movie, they will also have similar tastes in the future. If, for example, user A and user B have a similar purchase history and user A recently bought a book that user B has not yet seen, the basic idea is to propose this book to user B.
+
+The collaborative filtering approach considers only user preferences and does not take into account the features or contents of the items (books or movies) being recommended. In this project, in order to recommend movies I will use a large set of users preferences towards the movies from a publicly available movie rating dataset.
+
+##Dataset
+
+The dataset used was from MovieLens, and is publicly available at http://grouplens.org/datasets/movielens/latest. The dataset contains 105339 ratings and 6138 tag applications across 10329 movies. The idea on doing this dataset is thoroughly transform, clean, design, test and measure performance of the Recommender system
+
+##Design Steps
+
+Load Data from Github for repeteability, exploration of the data will ensue such as check structure and if data is useful as is or need some transformation suc as subsetting to get genres,movies and ratings.
+
+Other Step will be decide which type of recommender will be the best so trying at least to recommenders and methods will be a must to test for performance against the dataset thinking on IBCF and UBCF models.
+
+Once decided  will measure similarity of data and do further statistical exploration sucha as distribution of ratings, views,etc.
+
+Prepare data to be fed to the models such as creation and preparation of sparse matrix and data normalization and other needed procedures
+
+Define the test/training datasets and build the recommendation models, test the datasets
+
+Evaluate the recommender systems, Choose the best performing and optimize parameters part of this analysis will be compare all the recommenders with things such as ROC Curve and Precision Call
+
+# Recommender System Implementation
+
+Will construct a shiny app with the implementation of the Recommender system.
